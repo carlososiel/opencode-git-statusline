@@ -8,15 +8,28 @@
  *   sidebar_footer — sidebar in any active session.
  *                    sessionID is provided directly via ctx.session_id from the slot context.
  *
- * Reactive graph:
- *   gitStatus  ← 4s poll + file.watcher.updated debounce
- *   nowMs      ← 1s setInterval
- *   sessionID  ← slot context prop (not derived from api.route.current)
+ * Reactive graph (all signals live at plugin scope, NOT inside components):
+ *   gitStatus       ← 4s poll + file.watcher.updated debounce
+ *   nowMs           ← 1s setInterval
+ *   messageVersion  ← increments on message.updated event (controlled read gate)
+ *   configVersion   ← increments on session.updated / config events
  *
- * All timers cleaned up via api.lifecycle.onDispose.
+ * All timers and event handlers cleaned up via api.lifecycle.onDispose.
  * Registers /subagents:toggle-sidebar command via api.command?.register (optional chaining).
+ *
+ * === REACTIVE LOOP FIX (PR #6) ===
+ * Root cause: reading api.state.session.messages(sid), api.state.config.model, and
+ * api.state.vcs?.branch directly inside createMemo created reactive subscriptions to
+ * opencode's internal SolidJS store. On every AI message or state update, all 4+ memos
+ * cascaded synchronously through createRenderEffect, causing exponential reactive churn
+ * and eventually a "Maximum call stack size exceeded" error.
+ *
+ * Fix: all api.state.* reads inside components are wrapped in untrack() and gated by
+ * explicit version signals that increment only from event handlers at plugin scope.
+ * This mirrors the opencode-subagent-statusline@0.4.1 pattern: build your own controlled
+ * reactive state from events; never subscribe directly to the opencode store.
  */
-import { createSignal, createMemo, ErrorBoundary } from "solid-js"
+import { createSignal, createMemo, untrack, ErrorBoundary } from "solid-js"
 import type { JSX } from "solid-js"
 import type { TuiPlugin, TuiPluginModule, TuiPluginApi, TuiTheme } from "@opencode-ai/plugin/tui"
 import type { RGBA } from "@opentui/core"
@@ -57,6 +70,18 @@ type FooterProps = {
    * session-derived data even if a session is active in another screen.
    */
   sessionID: string | undefined
+  /**
+   * Reactive version counter that increments whenever messages change.
+   * Components read api.state.session.messages(sid) via untrack() and
+   * depend on this signal instead of subscribing directly to the store.
+   * This prevents the reactive cascade caused by direct store subscriptions.
+   */
+  messageVersion: () => number
+  /**
+   * Reactive version counter that increments whenever config/model changes.
+   * Same pattern as messageVersion — avoids direct store subscriptions.
+   */
+  configVersion: () => number
 }
 
 // ─── Segment text builders (for overflow algorithm) ──────────────────────────
@@ -105,25 +130,47 @@ function buildElapsedText(messages: ReadonlyArray<Message>, nowMs: number): stri
 // ─── Footer composite component ───────────────────────────────────────────────
 
 function Footer(props: FooterProps): JSX.Element {
-  const separatorColor = createMemo(() => useThemeColor(props.theme, "borderSubtle")())
+  const separatorColor = () => useThemeColor(props.theme, "borderSubtle")()
 
   // sessionID is provided directly from the slot context — never derived from route.
   // home_bottom passes undefined; sidebar_footer passes the actual session ID string.
   const sessionID = (): string | undefined => props.sessionID
 
+  /**
+   * messages memo: depends on messageVersion (our controlled signal), NOT on the
+   * opencode store directly. The actual store read is wrapped in untrack() so it
+   * does not create a reactive subscription to opencode's internal SolidJS store.
+   *
+   * This is the key fix for PR #6: the previous code subscribed directly to
+   * api.state.session.messages(sid) which caused runaway reactive cascades.
+   */
   const messages = createMemo<ReadonlyArray<Message>>(() => {
+    props.messageVersion() // reactive dependency: re-run when messages change
     const sid = sessionID()
     if (!sid) return []
-    return props.api.state.session.messages(sid)
+    // untrack: read the store value without subscribing to it
+    return untrack(() => props.api.state.session.messages(sid))
   })
 
-  // Build segment text strings for the overflow algorithm
-  const branchText = createMemo(() =>
-    buildBranchText(props.gitStatus(), props.api.state.vcs?.branch)
-  )
-  const modelText = createMemo(() =>
-    formatModel(props.api.state.config.model)
-  )
+  /**
+   * Branch text: depends on gitStatus (our own signal) and configVersion for vcsBranch.
+   * api.state.vcs?.branch is read via untrack to avoid subscribing to the store.
+   */
+  const branchText = createMemo(() => {
+    props.configVersion() // re-run when config/vcs changes
+    const vcsBranch = untrack(() => props.api.state.vcs?.branch)
+    return buildBranchText(props.gitStatus(), vcsBranch)
+  })
+
+  /**
+   * Model text: depends on configVersion (our controlled signal).
+   * api.state.config.model is read via untrack.
+   */
+  const modelText = createMemo(() => {
+    props.configVersion() // re-run when config changes
+    return untrack(() => formatModel(props.api.state.config.model))
+  })
+
   const tokensText = createMemo(() => {
     const sid = sessionID()
     if (!sid) return "↑-- ↓--"
@@ -140,8 +187,12 @@ function Footer(props: FooterProps): JSX.Element {
     return buildElapsedText(messages(), props.nowMs())
   })
 
-  // Compute which segments survive after overflow collapse
-  const termWidth = createMemo(() => props.api.renderer.width ?? 120)
+  /**
+   * Terminal width: read once via untrack to avoid subscribing to renderer.
+   * The layout doesn't change frequently enough to need reactive tracking,
+   * and subscribing to renderer.width can create re-render loops in opentui.
+   */
+  const termWidth = (): number => untrack(() => props.api.renderer.width ?? 120)
 
   const segments = createMemo<SegmentRender[]>(() => [
     {
@@ -184,10 +235,6 @@ function Footer(props: FooterProps): JSX.Element {
   const survivingIds = createMemo<Set<string>>(() => {
     const parts = segments()
     const width = termWidth()
-    const joined = collapseSegments(parts, width)
-    // Re-run the algorithm mentally: collapseSegments returns the final string.
-    // We need to know which segments survived to render them with proper colors.
-    // Replicate the drop logic to get surviving set.
     const surviving = [...parts]
     const joinedWidth = (segs: SegmentRender[]): number => {
       if (segs.length === 0) return 0
@@ -201,8 +248,6 @@ function Footer(props: FooterProps): JSX.Element {
       if (idx === -1) break
       surviving.splice(idx, 1)
     }
-    // Suppress unused variable warning
-    void joined
     return new Set(surviving.map((s) => s.id))
   })
 
@@ -215,7 +260,7 @@ function Footer(props: FooterProps): JSX.Element {
           <BranchSegment
             theme={props.theme}
             gitStatus={props.gitStatus}
-            vcsBranch={props.api.state.vcs?.branch}
+            vcsBranch={() => untrack(() => props.api.state.vcs?.branch)}
           />
         </ErrorBoundary>
         {/* Model */}
@@ -223,7 +268,10 @@ function Footer(props: FooterProps): JSX.Element {
           <>
             <S fg={separatorColor()}>{SEPARATOR}</S>
             <ErrorBoundary fallback={<span>--</span>}>
-              <ModelSegment api={props.api} />
+              <ModelSegment
+                configVersion={props.configVersion}
+                getModel={() => untrack(() => props.api.state.config.model)}
+              />
             </ErrorBoundary>
           </>
         )}
@@ -233,8 +281,8 @@ function Footer(props: FooterProps): JSX.Element {
             <S fg={separatorColor()}>{SEPARATOR}</S>
             <ErrorBoundary fallback={<span>↑-- ↓--</span>}>
               <TokensSegment
-                api={props.api}
                 theme={props.theme}
+                messages={messages}
                 sessionID={sessionID}
               />
             </ErrorBoundary>
@@ -245,7 +293,7 @@ function Footer(props: FooterProps): JSX.Element {
           <>
             <S fg={separatorColor()}>{SEPARATOR}</S>
             <ErrorBoundary fallback={<span>$--</span>}>
-              <CostSegment api={props.api} sessionID={sessionID} />
+              <CostSegment messages={messages} sessionID={sessionID} />
             </ErrorBoundary>
           </>
         )}
@@ -255,7 +303,7 @@ function Footer(props: FooterProps): JSX.Element {
             <S fg={separatorColor()}>{SEPARATOR}</S>
             <ErrorBoundary fallback={<span>--m --s</span>}>
               <ElapsedSegment
-                api={props.api}
+                messages={messages}
                 sessionID={sessionID}
                 nowMs={props.nowMs}
               />
@@ -272,18 +320,33 @@ function Footer(props: FooterProps): JSX.Element {
 const tui: TuiPlugin = async (api, _options, meta) => {
   console.log(`[git-statusline] loaded v${meta.version ?? "?"}`)
 
-  // ── Signals ────────────────────────────────────────────────────────────────
+  // ── Signals (all at plugin scope — never inside components) ────────────────
   const [gitStatus, setGitStatus] = createSignal<GitState>({ ahead: 0, behind: 0, dirty: false })
   const [nowMs, setNowMs] = createSignal(Date.now())
+
+  /**
+   * messageVersion: increments whenever messages change.
+   * Segment memos depend on this signal instead of api.state.session.messages directly,
+   * preventing reactive subscriptions to the opencode internal store.
+   */
+  const [messageVersion, setMessageVersion] = createSignal(0)
+
+  /**
+   * configVersion: increments whenever model/config/vcs changes.
+   * Same pattern — avoids direct store subscription loops.
+   */
+  const [configVersion, setConfigVersion] = createSignal(0)
 
   // ── Git polling ────────────────────────────────────────────────────────────
   let lastGitRunMs = 0
 
   const runGit = async (): Promise<void> => {
-    const cwd = api.state.path.worktree
+    const cwd = untrack(() => api.state.path.worktree)
     if (!cwd) return
     lastGitRunMs = Date.now()
     setGitStatus(await readGitState(cwd))
+    // Also bump configVersion so branchText re-reads api.state.vcs?.branch
+    setConfigVersion((v) => v + 1)
   }
 
   // Fire an initial poll immediately (fire-and-forget)
@@ -299,11 +362,23 @@ const tui: TuiPlugin = async (api, _options, meta) => {
     }
   })
 
+  // Message event handler: bump messageVersion so segments re-read messages
+  const offMessageUpdated = api.event.on("message.updated", () => {
+    setMessageVersion((v) => v + 1)
+  })
+
+  // Config/session event handlers: bump configVersion so model/vcs re-reads
+  const offSessionUpdated = api.event.on("session.updated", () => {
+    setConfigVersion((v) => v + 1)
+  })
+
   // ── Lifecycle cleanup ──────────────────────────────────────────────────────
   api.lifecycle.onDispose(() => {
     clearInterval(gitTick)
     clearInterval(elapsedTick)
     offWatcher()
+    offMessageUpdated()
+    offSessionUpdated()
   })
 
   // ── Optional command: toggle subagent sidebar ─────────────────────────────
@@ -348,6 +423,8 @@ const tui: TuiPlugin = async (api, _options, meta) => {
           gitStatus={gitStatus}
           nowMs={nowMs}
           sessionID={undefined}
+          messageVersion={messageVersion}
+          configVersion={configVersion}
         />
       ),
       sidebar_footer: (ctx, props) => (
@@ -357,6 +434,8 @@ const tui: TuiPlugin = async (api, _options, meta) => {
           gitStatus={gitStatus}
           nowMs={nowMs}
           sessionID={props.session_id}
+          messageVersion={messageVersion}
+          configVersion={configVersion}
         />
       ),
     },

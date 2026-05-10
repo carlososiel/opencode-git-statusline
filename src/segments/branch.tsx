@@ -12,6 +12,12 @@
  *
  * Non-git directory → shows "--" without indicators.
  * Wrapped in <ErrorBoundary> so a crash never breaks the whole footer.
+ *
+ * Props change (PR #6 reactive-loop fix):
+ * - `vcsBranch` is now a getter `() => string | undefined` instead of a plain
+ *   string prop. The parent (Footer) reads api.state.vcs?.branch via untrack()
+ *   and passes a getter, so this component does not directly subscribe to the
+ *   opencode VCS store.
  */
 import { createMemo, ErrorBoundary } from "solid-js"
 import type { JSX } from "solid-js"
@@ -24,8 +30,12 @@ export type BranchSegmentProps = {
   theme: TuiTheme
   /** Reactive getter returning the current GitState */
   gitStatus: () => GitState
-  /** Optional vcs branch from api.state (fallback when git poll has error) */
-  vcsBranch?: string
+  /**
+   * Getter for the vcs branch from api.state (fallback when git poll has error).
+   * Passed as a getter from Footer to avoid a direct reactive subscription to
+   * the opencode VCS store. Read via untrack in the parent.
+   */
+  vcsBranch: () => string | undefined
 }
 
 /** Build the display string for the branch segment from a GitState. */
@@ -43,23 +53,23 @@ function buildBranchText(state: GitState, vcsBranch: string | undefined): string
   return `${branch}${suffix}`
 }
 
-/** Choose foreground color key based on GitState. */
-function stateColorGetter(state: GitState, theme: TuiTheme): () => RGBA {
+/** Choose foreground color based on GitState. */
+function stateColor(state: GitState, theme: TuiTheme): RGBA {
   if (state.error && state.error !== "not-a-repo") {
-    return useThemeColor(theme, "error")
+    return useThemeColor(theme, "error")()
   }
   if (state.dirty || state.ahead > 0 || state.behind > 0) {
-    return useThemeColor(theme, "warning")
+    return useThemeColor(theme, "warning")()
   }
-  return useThemeColor(theme, "success")
+  return useThemeColor(theme, "success")()
 }
 
 function BranchInner(props: BranchSegmentProps): JSX.Element {
-  const text = createMemo(() => buildBranchText(props.gitStatus(), props.vcsBranch))
-  const colorGetter = createMemo<() => RGBA>(() => stateColorGetter(props.gitStatus(), props.theme))
+  const text = createMemo(() => buildBranchText(props.gitStatus(), props.vcsBranch()))
+  const color = createMemo<RGBA>(() => stateColor(props.gitStatus(), props.theme))
 
   return (
-    <text fg={colorGetter()()}>{text()}</text>
+    <text fg={color()}>{text()}</text>
   )
 }
 

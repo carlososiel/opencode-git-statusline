@@ -1,5 +1,5 @@
 import { createComponent, createElement, insert, insertNode, createTextNode, memo, effect, setProp } from '@opentui/solid';
-import { createSignal, createMemo, ErrorBoundary } from 'solid-js';
+import { createSignal, untrack, createMemo, ErrorBoundary } from 'solid-js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -47,35 +47,6 @@ function parsePorcelainV2(out) {
   return { branch, ahead, behind, dirty };
 }
 
-// src/overflow.ts
-var SEPARATOR = " \u2502 ";
-var SEPARATOR_LEN = SEPARATOR.length;
-function collapseSegments(parts, width) {
-  let surviving = [...parts];
-  const joinedWidth = (segs) => {
-    if (segs.length === 0) return 0;
-    return segs.reduce((acc, s) => acc + s.text.length, 0) + (segs.length - 1) * SEPARATOR_LEN;
-  };
-  if (joinedWidth(surviving) <= width) {
-    return surviving.map((s) => s.text).join(SEPARATOR);
-  }
-  while (joinedWidth(surviving) > width) {
-    const droppable = surviving.filter((s) => s.droppable);
-    if (droppable.length === 0) break;
-    const maxPriority = Math.max(...droppable.map((s) => s.priority ?? 0));
-    const idx = surviving.findIndex((s) => s.droppable && s.priority === maxPriority);
-    if (idx === -1) break;
-    surviving.splice(idx, 1);
-  }
-  if (joinedWidth(surviving) > width && surviving.length > 0) {
-    surviving = surviving.map((s) => ({
-      ...s,
-      text: s.minText.length <= width ? s.minText : s.minText.slice(0, Math.max(width, 1))
-    }));
-  }
-  return surviving.map((s) => s.text).join(SEPARATOR);
-}
-
 // src/theme.ts
 var useThemeColor = (theme, key) => () => theme.current[key];
 function buildBranchText(state, vcsBranch) {
@@ -91,22 +62,22 @@ function buildBranchText(state, vcsBranch) {
   }
   return `${branch}${suffix}`;
 }
-function stateColorGetter(state, theme) {
+function stateColor(state, theme) {
   if (state.error && state.error !== "not-a-repo") {
-    return useThemeColor(theme, "error");
+    return useThemeColor(theme, "error")();
   }
   if (state.dirty || state.ahead > 0 || state.behind > 0) {
-    return useThemeColor(theme, "warning");
+    return useThemeColor(theme, "warning")();
   }
-  return useThemeColor(theme, "success");
+  return useThemeColor(theme, "success")();
 }
 function BranchInner(props) {
-  const text = createMemo(() => buildBranchText(props.gitStatus(), props.vcsBranch));
-  const colorGetter = createMemo(() => stateColorGetter(props.gitStatus(), props.theme));
+  const text = createMemo(() => buildBranchText(props.gitStatus(), props.vcsBranch()));
+  const color = createMemo(() => stateColor(props.gitStatus(), props.theme));
   return (() => {
     var _el$ = createElement("text");
     insert(_el$, text);
-    effect((_$p) => setProp(_el$, "fg", colorGetter()(), _$p));
+    effect((_$p) => setProp(_el$, "fg", color(), _$p));
     return _el$;
   })();
 }
@@ -155,7 +126,10 @@ function formatModel(id) {
 
 // src/segments/model.tsx
 function ModelInner(props) {
-  const label = createMemo(() => formatModel(props.api.state.config.model));
+  const label = createMemo(() => {
+    props.configVersion();
+    return formatModel(props.getModel());
+  });
   return (() => {
     var _el$ = createElement("text");
     insert(_el$, label);
@@ -195,13 +169,12 @@ function aggregateTokens(messages) {
   };
 }
 function TokensInner(props) {
-  const mutedColor = createMemo(() => useThemeColor(props.theme, "textMuted")());
-  const textColor = createMemo(() => useThemeColor(props.theme, "text")());
+  const mutedColor = () => useThemeColor(props.theme, "textMuted")();
+  const textColor = () => useThemeColor(props.theme, "text")();
   const totals = createMemo(() => {
     const sid = props.sessionID();
     if (!sid) return NO_SESSION;
-    const messages = props.api.state.session.messages(sid);
-    return aggregateTokens(messages);
+    return aggregateTokens(props.messages());
   });
   const inputStr = createMemo(() => totals().input < 0 ? "--" : formatTokens(totals().input));
   const outputStr = createMemo(() => totals().output < 0 ? "--" : formatTokens(totals().output));
@@ -266,8 +239,7 @@ function CostInner(props) {
   const costText = createMemo(() => {
     const sid = props.sessionID();
     if (!sid) return "$--";
-    const messages = props.api.state.session.messages(sid);
-    const total = aggregateCost(messages);
+    const total = aggregateCost(props.messages());
     return formatCost(total);
   });
   return (() => {
@@ -301,13 +273,14 @@ function getFirstMessageMs(messages) {
   return earliest;
 }
 function ElapsedInner(props) {
-  const elapsedText = createMemo(() => {
+  const firstMs = createMemo(() => {
     const sid = props.sessionID();
-    if (!sid) return "--m --s";
-    const messages = props.api.state.session.messages(sid);
-    const firstMs = getFirstMessageMs(messages);
-    if (firstMs === void 0) return "--m --s";
-    const elapsed = props.nowMs() - firstMs;
+    if (!sid) return void 0;
+    return getFirstMessageMs(props.messages());
+  });
+  const elapsedText = createMemo(() => {
+    if (firstMs() === void 0) return "--m --s";
+    const elapsed = props.nowMs() - firstMs();
     return formatDuration(elapsed);
   });
   return (() => {
@@ -371,15 +344,23 @@ function buildElapsedText(messages, nowMs) {
   return formatDuration(nowMs - earliest);
 }
 function Footer(props) {
-  const separatorColor = createMemo(() => useThemeColor(props.theme, "borderSubtle")());
+  const separatorColor = () => useThemeColor(props.theme, "borderSubtle")();
   const sessionID = () => props.sessionID;
   const messages = createMemo(() => {
+    props.messageVersion();
     const sid = sessionID();
     if (!sid) return [];
-    return props.api.state.session.messages(sid);
+    return untrack(() => props.api.state.session.messages(sid));
   });
-  const branchText = createMemo(() => buildBranchText2(props.gitStatus(), props.api.state.vcs?.branch));
-  const modelText = createMemo(() => formatModel(props.api.state.config.model));
+  const branchText = createMemo(() => {
+    props.configVersion();
+    const vcsBranch = untrack(() => props.api.state.vcs?.branch);
+    return buildBranchText2(props.gitStatus(), vcsBranch);
+  });
+  const modelText = createMemo(() => {
+    props.configVersion();
+    return untrack(() => formatModel(props.api.state.config.model));
+  });
   const tokensText = createMemo(() => {
     const sid = sessionID();
     if (!sid) return "\u2191-- \u2193--";
@@ -395,7 +376,7 @@ function Footer(props) {
     if (!sid) return "--m --s";
     return buildElapsedText(messages(), props.nowMs());
   });
-  const termWidth = createMemo(() => props.api.renderer.width ?? 120);
+  const termWidth = () => untrack(() => props.api.renderer.width ?? 120);
   const segments = createMemo(() => [{
     id: "branch",
     text: branchText(),
@@ -429,7 +410,6 @@ function Footer(props) {
   const survivingIds = createMemo(() => {
     const parts = segments();
     const width = termWidth();
-    collapseSegments(parts, width);
     const surviving = [...parts];
     const joinedWidth = (segs) => {
       if (segs.length === 0) return 0;
@@ -445,7 +425,7 @@ function Footer(props) {
     }
     return new Set(surviving.map((s) => s.id));
   });
-  const SEPARATOR2 = " \u2502 ";
+  const SEPARATOR = " \u2502 ";
   return createComponent(ErrorBoundary, {
     get fallback() {
       return (() => {
@@ -472,9 +452,7 @@ function Footer(props) {
             get gitStatus() {
               return props.gitStatus;
             },
-            get vcsBranch() {
-              return props.api.state.vcs?.branch;
-            }
+            vcsBranch: () => untrack(() => props.api.state.vcs?.branch)
           });
         }
       }), null);
@@ -484,7 +462,7 @@ function Footer(props) {
           get fg() {
             return separatorColor();
           },
-          children: SEPARATOR2
+          children: SEPARATOR
         }), createComponent(ErrorBoundary, {
           get fallback() {
             return (() => {
@@ -495,9 +473,10 @@ function Footer(props) {
           },
           get children() {
             return createComponent(ModelSegment, {
-              get api() {
-                return props.api;
-              }
+              get configVersion() {
+                return props.configVersion;
+              },
+              getModel: () => untrack(() => props.api.state.config.model)
             });
           }
         })];
@@ -508,7 +487,7 @@ function Footer(props) {
           get fg() {
             return separatorColor();
           },
-          children: SEPARATOR2
+          children: SEPARATOR
         }), createComponent(ErrorBoundary, {
           get fallback() {
             return (() => {
@@ -519,12 +498,10 @@ function Footer(props) {
           },
           get children() {
             return createComponent(TokensSegment, {
-              get api() {
-                return props.api;
-              },
               get theme() {
                 return props.theme;
               },
+              messages,
               sessionID
             });
           }
@@ -536,7 +513,7 @@ function Footer(props) {
           get fg() {
             return separatorColor();
           },
-          children: SEPARATOR2
+          children: SEPARATOR
         }), createComponent(ErrorBoundary, {
           get fallback() {
             return (() => {
@@ -547,9 +524,7 @@ function Footer(props) {
           },
           get children() {
             return createComponent(CostSegment, {
-              get api() {
-                return props.api;
-              },
+              messages,
               sessionID
             });
           }
@@ -561,7 +536,7 @@ function Footer(props) {
           get fg() {
             return separatorColor();
           },
-          children: SEPARATOR2
+          children: SEPARATOR
         }), createComponent(ErrorBoundary, {
           get fallback() {
             return (() => {
@@ -572,9 +547,7 @@ function Footer(props) {
           },
           get children() {
             return createComponent(ElapsedSegment, {
-              get api() {
-                return props.api;
-              },
+              messages,
               sessionID,
               get nowMs() {
                 return props.nowMs;
@@ -595,12 +568,15 @@ var tui = async (api, _options, meta) => {
     dirty: false
   });
   const [nowMs, setNowMs] = createSignal(Date.now());
+  const [messageVersion, setMessageVersion] = createSignal(0);
+  const [configVersion, setConfigVersion] = createSignal(0);
   let lastGitRunMs = 0;
   const runGit = async () => {
-    const cwd = api.state.path.worktree;
+    const cwd = untrack(() => api.state.path.worktree);
     if (!cwd) return;
     lastGitRunMs = Date.now();
     setGitStatus(await readGitState(cwd));
+    setConfigVersion((v) => v + 1);
   };
   void runGit();
   const gitTick = setInterval(() => {
@@ -612,10 +588,18 @@ var tui = async (api, _options, meta) => {
       void runGit();
     }
   });
+  const offMessageUpdated = api.event.on("message.updated", () => {
+    setMessageVersion((v) => v + 1);
+  });
+  const offSessionUpdated = api.event.on("session.updated", () => {
+    setConfigVersion((v) => v + 1);
+  });
   api.lifecycle.onDispose(() => {
     clearInterval(gitTick);
     clearInterval(elapsedTick);
     offWatcher();
+    offMessageUpdated();
+    offSessionUpdated();
   });
   api.command?.register(() => [{
     title: "Subagentes: alternar panel lateral",
@@ -643,7 +627,9 @@ var tui = async (api, _options, meta) => {
         },
         gitStatus,
         nowMs,
-        sessionID: void 0
+        sessionID: void 0,
+        messageVersion,
+        configVersion
       }),
       sidebar_footer: (ctx, props) => createComponent(Footer, {
         api,
@@ -654,7 +640,9 @@ var tui = async (api, _options, meta) => {
         nowMs,
         get sessionID() {
           return props.session_id;
-        }
+        },
+        messageVersion,
+        configVersion
       })
     }
   });
