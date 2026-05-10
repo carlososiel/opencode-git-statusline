@@ -9,7 +9,7 @@
  *   sessionID  ← api.route.current (auto-tracked by SolidJS)
  *
  * All timers cleaned up via api.lifecycle.onDispose.
- * Does NOT register the /subagents:toggle-sidebar command (slice 3).
+ * Registers /subagents:toggle-sidebar command via api.command?.register (optional chaining).
  */
 import { createSignal, createMemo, ErrorBoundary } from "solid-js"
 import type { JSX } from "solid-js"
@@ -294,6 +294,27 @@ const tui: TuiPlugin = async (api, _options, meta) => {
     clearInterval(elapsedTick)
     offWatcher()
   })
+
+  // ── Optional command: toggle subagent sidebar ─────────────────────────────
+  // api.command is @deprecated and optional in newer opencode versions.
+  // Optional chaining ensures the plugin does not crash on older/newer runtimes
+  // that remove this API. The footer slot still works regardless.
+  api.command?.register(() => [
+    {
+      title: "Subagentes: alternar panel lateral",
+      value: "subagents:toggle-sidebar",
+      category: "Subagents",
+      slash: { name: "subagents:toggle-sidebar" },
+      onSelect: () => {
+        const enabled = api.kv.get<boolean>("subagents.sidebar.enabled", true) !== false
+        api.kv.set("subagents.sidebar.enabled", !enabled)
+        api.ui.toast({
+          variant: "info",
+          message: !enabled ? "Panel de subagentes activado." : "Panel de subagentes ocultado.",
+        })
+      },
+    },
+  ])
 
   // ── Slot registration ─────────────────────────────────────────────────────
   api.slots.register({

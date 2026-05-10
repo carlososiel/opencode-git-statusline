@@ -592,6 +592,22 @@ var tui = async (api, _options, meta) => {
     clearInterval(elapsedTick);
     offWatcher();
   });
+  api.command?.register(() => [{
+    title: "Subagentes: alternar panel lateral",
+    value: "subagents:toggle-sidebar",
+    category: "Subagents",
+    slash: {
+      name: "subagents:toggle-sidebar"
+    },
+    onSelect: () => {
+      const enabled = api.kv.get("subagents.sidebar.enabled", true) !== false;
+      api.kv.set("subagents.sidebar.enabled", !enabled);
+      api.ui.toast({
+        variant: "info",
+        message: !enabled ? "Panel de subagentes activado." : "Panel de subagentes ocultado."
+      });
+    }
+  }]);
   api.slots.register({
     order: 50,
     slots: {
