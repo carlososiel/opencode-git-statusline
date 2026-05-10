@@ -588,15 +588,27 @@ var tui = async (api, _options, meta) => {
       void runGit();
     }
   });
+  let messageDebounce = null;
   const offMessageUpdated = api.event.on("message.updated", () => {
-    setMessageVersion((v) => v + 1);
+    if (messageDebounce) clearTimeout(messageDebounce);
+    messageDebounce = setTimeout(() => {
+      messageDebounce = null;
+      setMessageVersion((v) => v + 1);
+    }, 150);
   });
+  let configDebounce = null;
   const offSessionUpdated = api.event.on("session.updated", () => {
-    setConfigVersion((v) => v + 1);
+    if (configDebounce) clearTimeout(configDebounce);
+    configDebounce = setTimeout(() => {
+      configDebounce = null;
+      setConfigVersion((v) => v + 1);
+    }, 150);
   });
   api.lifecycle.onDispose(() => {
     clearInterval(gitTick);
     clearInterval(elapsedTick);
+    if (messageDebounce) clearTimeout(messageDebounce);
+    if (configDebounce) clearTimeout(configDebounce);
     offWatcher();
     offMessageUpdated();
     offSessionUpdated();

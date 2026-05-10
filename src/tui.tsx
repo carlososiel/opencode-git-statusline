@@ -362,20 +362,37 @@ const tui: TuiPlugin = async (api, _options, meta) => {
     }
   })
 
-  // Message event handler: bump messageVersion so segments re-read messages
+  // Message event handler: bump messageVersion so segments re-read messages.
+  // DEBOUNCED 150ms — message.updated fires for EVERY streaming token.
+  // Without debounce, rapid-fire events cascade synchronously through all memos
+  // in both Footer instances (home_bottom + sidebar_footer) via createRenderEffect,
+  // causing "Maximum call stack size exceeded" during AI streaming.
+  let messageDebounce: ReturnType<typeof setTimeout> | null = null
   const offMessageUpdated = api.event.on("message.updated", () => {
-    setMessageVersion((v) => v + 1)
+    if (messageDebounce) clearTimeout(messageDebounce)
+    messageDebounce = setTimeout(() => {
+      messageDebounce = null
+      setMessageVersion((v) => v + 1)
+    }, 150)
   })
 
-  // Config/session event handlers: bump configVersion so model/vcs re-reads
+  // Config/session event handlers: bump configVersion so model/vcs re-reads.
+  // Also debounced to prevent cascades during session init.
+  let configDebounce: ReturnType<typeof setTimeout> | null = null
   const offSessionUpdated = api.event.on("session.updated", () => {
-    setConfigVersion((v) => v + 1)
+    if (configDebounce) clearTimeout(configDebounce)
+    configDebounce = setTimeout(() => {
+      configDebounce = null
+      setConfigVersion((v) => v + 1)
+    }, 150)
   })
 
   // ── Lifecycle cleanup ──────────────────────────────────────────────────────
   api.lifecycle.onDispose(() => {
     clearInterval(gitTick)
     clearInterval(elapsedTick)
+    if (messageDebounce) clearTimeout(messageDebounce)
+    if (configDebounce) clearTimeout(configDebounce)
     offWatcher()
     offMessageUpdated()
     offSessionUpdated()
