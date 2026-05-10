@@ -1,4 +1,4 @@
-import { createComponent, insert, memo, template, effect, setAttribute } from 'solid-js/web';
+import { createComponent, createElement, insert, insertNode, createTextNode, memo, effect, setProp } from '@opentui/solid';
 import { createSignal, createMemo, ErrorBoundary } from 'solid-js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -78,8 +78,6 @@ function collapseSegments(parts, width) {
 
 // src/theme.ts
 var useThemeColor = (theme, key) => () => theme.current[key];
-var _tmpl$ = /* @__PURE__ */ template(`<svg><text></svg>`, false, true, false);
-var _tmpl$2 = /* @__PURE__ */ template(`<svg><text>--</svg>`, false, true, false);
 function buildBranchText(state, vcsBranch) {
   if (state.error === "not-a-repo" || !state.branch && !vcsBranch) {
     return "--";
@@ -106,16 +104,20 @@ function BranchInner(props) {
   const text = createMemo(() => buildBranchText(props.gitStatus(), props.vcsBranch));
   const colorGetter = createMemo(() => stateColorGetter(props.gitStatus(), props.theme));
   return (() => {
-    var _el$ = _tmpl$();
+    var _el$ = createElement("text");
     insert(_el$, text);
-    effect(() => setAttribute(_el$, "fg", colorGetter()()));
+    effect((_$p) => setProp(_el$, "fg", colorGetter()(), _$p));
     return _el$;
   })();
 }
 function BranchSegment(props) {
   return createComponent(ErrorBoundary, {
     get fallback() {
-      return _tmpl$2();
+      return (() => {
+        var _el$2 = createElement("text");
+        insertNode(_el$2, createTextNode(`--`));
+        return _el$2;
+      })();
     },
     get children() {
       return createComponent(BranchInner, props);
@@ -152,12 +154,10 @@ function formatModel(id) {
 }
 
 // src/segments/model.tsx
-var _tmpl$3 = /* @__PURE__ */ template(`<svg><text></svg>`, false, true, false);
-var _tmpl$22 = /* @__PURE__ */ template(`<svg><text>--</svg>`, false, true, false);
 function ModelInner(props) {
   const label = createMemo(() => formatModel(props.api.state.config.model));
   return (() => {
-    var _el$ = _tmpl$3();
+    var _el$ = createElement("text");
     insert(_el$, label);
     return _el$;
   })();
@@ -165,15 +165,17 @@ function ModelInner(props) {
 function ModelSegment(props) {
   return createComponent(ErrorBoundary, {
     get fallback() {
-      return _tmpl$22();
+      return (() => {
+        var _el$2 = createElement("text");
+        insertNode(_el$2, createTextNode(`--`));
+        return _el$2;
+      })();
     },
     get children() {
       return createComponent(ModelInner, props);
     }
   });
 }
-var _tmpl$4 = /* @__PURE__ */ template(`<svg><text></svg>`, false, true, false);
-var _tmpl$23 = /* @__PURE__ */ template(`<svg><text>\u2191-- \u2193--</svg>`, false, true, false);
 var NO_SESSION = {
   input: -1,
   output: -1
@@ -205,7 +207,7 @@ function TokensInner(props) {
   const outputStr = createMemo(() => totals().output < 0 ? "--" : formatTokens(totals().output));
   const S2 = "span";
   return (() => {
-    var _el$ = _tmpl$4();
+    var _el$ = createElement("text");
     insert(_el$, createComponent(S2, {
       get fg() {
         return mutedColor();
@@ -240,15 +242,17 @@ function TokensInner(props) {
 function TokensSegment(props) {
   return createComponent(ErrorBoundary, {
     get fallback() {
-      return _tmpl$23();
+      return (() => {
+        var _el$2 = createElement("text");
+        insertNode(_el$2, createTextNode(`\u2191-- \u2193--`));
+        return _el$2;
+      })();
     },
     get children() {
       return createComponent(TokensInner, props);
     }
   });
 }
-var _tmpl$5 = /* @__PURE__ */ template(`<svg><text></svg>`, false, true, false);
-var _tmpl$24 = /* @__PURE__ */ template(`<svg><text>$--</svg>`, false, true, false);
 function aggregateCost(messages) {
   let total = 0;
   for (const msg of messages) {
@@ -267,7 +271,7 @@ function CostInner(props) {
     return formatCost(total);
   });
   return (() => {
-    var _el$ = _tmpl$5();
+    var _el$ = createElement("text");
     insert(_el$, costText);
     return _el$;
   })();
@@ -275,15 +279,17 @@ function CostInner(props) {
 function CostSegment(props) {
   return createComponent(ErrorBoundary, {
     get fallback() {
-      return _tmpl$24();
+      return (() => {
+        var _el$2 = createElement("text");
+        insertNode(_el$2, createTextNode(`$--`));
+        return _el$2;
+      })();
     },
     get children() {
       return createComponent(CostInner, props);
     }
   });
 }
-var _tmpl$6 = /* @__PURE__ */ template(`<svg><text></svg>`, false, true, false);
-var _tmpl$25 = /* @__PURE__ */ template(`<svg><text>--m --s</svg>`, false, true, false);
 function getFirstMessageMs(messages) {
   let earliest;
   for (const msg of messages) {
@@ -305,7 +311,7 @@ function ElapsedInner(props) {
     return formatDuration(elapsed);
   });
   return (() => {
-    var _el$ = _tmpl$6();
+    var _el$ = createElement("text");
     insert(_el$, elapsedText);
     return _el$;
   })();
@@ -313,7 +319,11 @@ function ElapsedInner(props) {
 function ElapsedSegment(props) {
   return createComponent(ErrorBoundary, {
     get fallback() {
-      return _tmpl$25();
+      return (() => {
+        var _el$2 = createElement("text");
+        insertNode(_el$2, createTextNode(`--m --s`));
+        return _el$2;
+      })();
     },
     get children() {
       return createComponent(ElapsedInner, props);
@@ -322,12 +332,6 @@ function ElapsedSegment(props) {
 }
 
 // src/tui.tsx
-var _tmpl$7 = /* @__PURE__ */ template(`<svg><text></svg>`, false, true, false);
-var _tmpl$26 = /* @__PURE__ */ template(`<svg><text>git-statusline error</svg>`, false, true, false);
-var _tmpl$32 = /* @__PURE__ */ template(`<span>--`);
-var _tmpl$42 = /* @__PURE__ */ template(`<span>\u2191-- \u2193--`);
-var _tmpl$52 = /* @__PURE__ */ template(`<span>$--`);
-var _tmpl$62 = /* @__PURE__ */ template(`<span>--m --s`);
 var S = "span";
 function buildBranchText2(state, vcsBranch) {
   if (state.error === "not-a-repo" || !state.branch && !vcsBranch) return "--";
@@ -444,13 +448,21 @@ function Footer(props) {
   const SEPARATOR2 = " \u2502 ";
   return createComponent(ErrorBoundary, {
     get fallback() {
-      return _tmpl$26();
+      return (() => {
+        var _el$2 = createElement("text");
+        insertNode(_el$2, createTextNode(`git-statusline error`));
+        return _el$2;
+      })();
     },
     get children() {
-      var _el$ = _tmpl$7();
+      var _el$ = createElement("text");
       insert(_el$, createComponent(ErrorBoundary, {
         get fallback() {
-          return _tmpl$32();
+          return (() => {
+            var _el$4 = createElement("span");
+            insertNode(_el$4, createTextNode(`--`));
+            return _el$4;
+          })();
         },
         get children() {
           return createComponent(BranchSegment, {
@@ -475,7 +487,11 @@ function Footer(props) {
           children: SEPARATOR2
         }), createComponent(ErrorBoundary, {
           get fallback() {
-            return _tmpl$32();
+            return (() => {
+              var _el$6 = createElement("span");
+              insertNode(_el$6, createTextNode(`--`));
+              return _el$6;
+            })();
           },
           get children() {
             return createComponent(ModelSegment, {
@@ -495,7 +511,11 @@ function Footer(props) {
           children: SEPARATOR2
         }), createComponent(ErrorBoundary, {
           get fallback() {
-            return _tmpl$42();
+            return (() => {
+              var _el$8 = createElement("span");
+              insertNode(_el$8, createTextNode(`\u2191-- \u2193--`));
+              return _el$8;
+            })();
           },
           get children() {
             return createComponent(TokensSegment, {
@@ -519,7 +539,11 @@ function Footer(props) {
           children: SEPARATOR2
         }), createComponent(ErrorBoundary, {
           get fallback() {
-            return _tmpl$52();
+            return (() => {
+              var _el$0 = createElement("span");
+              insertNode(_el$0, createTextNode(`$--`));
+              return _el$0;
+            })();
           },
           get children() {
             return createComponent(CostSegment, {
@@ -540,7 +564,11 @@ function Footer(props) {
           children: SEPARATOR2
         }), createComponent(ErrorBoundary, {
           get fallback() {
-            return _tmpl$62();
+            return (() => {
+              var _el$10 = createElement("span");
+              insertNode(_el$10, createTextNode(`--m --s`));
+              return _el$10;
+            })();
           },
           get children() {
             return createComponent(ElapsedSegment, {

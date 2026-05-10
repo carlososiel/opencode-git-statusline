@@ -111,6 +111,8 @@ After `npm run build`, restore the hand-written type stub if it was wiped by tsu
 git checkout -- dist/tui.d.ts
 ```
 
+> **Renderer note**: `tsup.config.ts` passes `solid: { generate: "universal", moduleName: "@opentui/solid" }` to `esbuild-plugin-solid`. This is required for opentui plugins — the default `"dom"` mode emits imports from `solid-js/web`, which resolves to its server variant in Bun/Node and crashes with a "Client-only API called on the server side" error.
+
 ---
 
 ## License
