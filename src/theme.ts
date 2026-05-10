@@ -3,6 +3,7 @@
  * Returns reactive closures that re-read from `theme.current` on each call,
  * allowing SolidJS to auto-track theme changes without explicit subscriptions.
  */
+import { untrack } from "solid-js"
 import type { TuiTheme, TuiThemeCurrent } from "@opencode-ai/plugin/tui"
 import type { RGBA } from "@opentui/core"
 
@@ -25,5 +26,17 @@ export type ThemeColorKey = {
  * @param key   - A color key of TuiThemeCurrent (must be RGBA-typed)
  * @returns A zero-arg function returning the current RGBA value for that key
  */
+/**
+ * IMPORTANT: theme.current is a reactive SolidJS store in opentui. Reading it
+ * without untrack() creates a subscription to ALL theme changes — including
+ * thinkingOpacity which is animated during AI processing (many updates/sec).
+ * This would cause every theme read inside a createMemo or JSX to re-run on
+ * each animation frame, causing a synchronous reactive cascade and call stack
+ * overflow after a few seconds.
+ *
+ * Fix: always read theme.current[key] inside untrack(). Colors won't reactively
+ * update when the theme changes mid-session, but that's acceptable — theme
+ * changes during a session are extremely rare.
+ */
 export const useThemeColor = (theme: TuiTheme, key: ThemeColorKey): (() => RGBA) =>
-  () => theme.current[key] as RGBA
+  () => untrack(() => theme.current[key] as RGBA)
