@@ -1,0 +1,36 @@
+{
+  "name": "opencode-git-statusline",
+  "version": "0.1.0",
+  "description": "Persistent git/model/tokens/cost/elapsed statusline for opencode TUI",
+  "type": "module",
+  "main": "./dist/tui.js",
+  "types": "./dist/tui.d.ts",
+  "exports": {
+    ".":     { "types": "./dist/tui.d.ts", "import": "./dist/tui.js" },
+    "./tui": { "types": "./dist/tui.d.ts", "import": "./dist/tui.js" }
+  },
+  "files": ["dist", "README.md", "docs"],
+  "scripts": {
+    "build":     "tsup",
+    "dev":       "tsup --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prepack":   "pnpm run build"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@opencode-ai/plugin": "*",
+    "@opentui/core":       "*",
+    "@opentui/solid":      "*",
+    "solid-js":            "*"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin":  "*",
+    "@opentui/core":        "*",
+    "@opentui/solid":       "*",
+    "@types/node":          "^22.15.21",
+    "esbuild-plugin-solid": "^0.6.0",
+    "solid-js":             "*",
+    "tsup":                 "^8.5.1",
+    "typescript":           "^5.8.3"
+  }
+}
