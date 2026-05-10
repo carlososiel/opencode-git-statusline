@@ -11,5 +11,12 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   external: ["@opencode-ai/plugin", "@opentui/core", "@opentui/solid", "solid-js"],
-  esbuildPlugins: [solidPlugin()],
+  esbuildPlugins: [
+    solidPlugin({
+      solid: {
+        generate: "universal",
+        moduleName: "@opentui/solid",
+      },
+    }),
+  ],
 })
