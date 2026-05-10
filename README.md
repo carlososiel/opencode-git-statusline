@@ -30,7 +30,7 @@ A TUI plugin for [opencode](https://opencode.ai) that renders a persistent singl
    npm install
    ```
 
-4. Restart opencode. The statusline appears immediately in the footer on every route.
+4. Restart opencode. The statusline appears on the home screen and in the sidebar footer of every active session.
 
 ---
 
@@ -56,9 +56,20 @@ On narrow terminals, segments collapse right-to-left: elapsed drops first, then 
 
 ---
 
+## Slots
+
+`opencode-git-statusline` registers two TUI slots:
+
+| Slot | Where it renders | Session data |
+|------|-----------------|--------------|
+| `home_bottom` | Home screen (no active session) | branch + model only; tokens/cost/elapsed show `--` |
+| `sidebar_footer` | Bottom of the sidebar in any active session | All five segments with live session data |
+
+> **Why not `home_footer`?** That slot is declared in the opencode type definitions but is not actually rendered by the current TUI layout. Confirmed by inspecting `opencode-subagent-statusline@0.4.1` and `opencode-sdd-engram-manage@1.5.0` — both use `home_bottom` + `sidebar_content` (or `sidebar_footer`). Registering `home_footer` results in silent load with no visible output.
+
 ## Coexistence
 
-`opencode-git-statusline` registers **only** the `home_footer` slot. It does not touch `sidebar_content` or `home_bottom`, so it coexists cleanly with `opencode-subagent-statusline` (sidebar) and `opencode-sdd-engram-manage` (model badge). Zero slot collision.
+`opencode-git-statusline` does not touch `sidebar_content`, so it coexists cleanly with `opencode-subagent-statusline` (sidebar subagent list) and `opencode-sdd-engram-manage` (model badge). Zero slot collision.
 
 ---
 
