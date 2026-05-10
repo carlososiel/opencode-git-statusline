@@ -6,20 +6,31 @@
  * Glyph labels (↑ ↓) use theme.textMuted; numeric values use theme.text.
  * No session / home route → shows "↑-- ↓--".
  * Wrapped in <ErrorBoundary> so a crash never breaks the whole footer.
+ *
+ * Props redesign (PR #6 reactive-loop fix):
+ * - Accepts `messages` getter (already gated by messageVersion) instead of
+ *   reading api.state.session.messages(sid) independently.
+ * - This eliminates a direct reactive subscription to the opencode message store,
+ *   which was one of the causes of the "Maximum call stack size exceeded" crash.
  */
 import { createMemo, ErrorBoundary } from "solid-js"
 import type { JSX } from "solid-js"
-import type { TuiPluginApi, TuiTheme } from "@opencode-ai/plugin/tui"
+import type { TuiTheme } from "@opencode-ai/plugin/tui"
 import type { Message } from "@opencode-ai/sdk/v2"
 import type { RGBA } from "@opentui/core"
 import { formatTokens } from "../format.js"
 import { useThemeColor } from "../theme.js"
 
 export type TokensSegmentProps = {
-  api: TuiPluginApi
   theme: TuiTheme
   /** Reactive getter returning current sessionID or undefined on home route */
   sessionID: () => string | undefined
+  /**
+   * Reactive getter returning current messages array.
+   * Provided by Footer — already gated by messageVersion signal.
+   * Returns [] when sessionID is undefined (home route).
+   */
+  messages: () => ReadonlyArray<Message>
 }
 
 type TokenTotals = {
@@ -51,14 +62,13 @@ function aggregateTokens(messages: ReadonlyArray<Message>): TokenTotals {
 type SpanWithFg = JSX.IntrinsicElements["span"] & { fg?: RGBA }
 
 function TokensInner(props: TokensSegmentProps): JSX.Element {
-  const mutedColor = createMemo(() => useThemeColor(props.theme, "textMuted")())
-  const textColor = createMemo(() => useThemeColor(props.theme, "text")())
+  const mutedColor = () => useThemeColor(props.theme, "textMuted")()
+  const textColor = () => useThemeColor(props.theme, "text")()
 
   const totals = createMemo<TokenTotals>(() => {
     const sid = props.sessionID()
     if (!sid) return NO_SESSION
-    const messages = props.api.state.session.messages(sid)
-    return aggregateTokens(messages)
+    return aggregateTokens(props.messages())
   })
 
   const inputStr = createMemo(() =>

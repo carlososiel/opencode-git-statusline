@@ -8,19 +8,30 @@
  *   No messages / home route → "--m --s"
  *
  * Wrapped in <ErrorBoundary> so a crash never breaks the whole footer.
+ *
+ * Props redesign (PR #6 reactive-loop fix):
+ * - Accepts `messages` getter (already gated by messageVersion) instead of
+ *   reading api.state.session.messages(sid) independently.
+ * - Eliminates a direct reactive subscription to the opencode message store.
+ * - Previously combining messages + nowMs in a single createMemo subscribed to
+ *   BOTH the opencode store AND the 1s timer, causing double-cascade on every tick.
  */
 import { createMemo, ErrorBoundary } from "solid-js"
 import type { JSX } from "solid-js"
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { Message } from "@opencode-ai/sdk/v2"
 import { formatDuration } from "../format.js"
 
 export type ElapsedSegmentProps = {
-  api: TuiPluginApi
   /** Reactive getter returning current sessionID or undefined on home route */
   sessionID: () => string | undefined
   /** Reactive getter returning current timestamp in ms (1s tick signal) */
   nowMs: () => number
+  /**
+   * Reactive getter returning current messages array.
+   * Provided by Footer — already gated by messageVersion signal.
+   * Returns [] when sessionID is undefined (home route).
+   */
+  messages: () => ReadonlyArray<Message>
 }
 
 function getFirstMessageMs(messages: ReadonlyArray<Message>): number | undefined {
@@ -36,13 +47,20 @@ function getFirstMessageMs(messages: ReadonlyArray<Message>): number | undefined
 }
 
 function ElapsedInner(props: ElapsedSegmentProps): JSX.Element {
-  const elapsedText = createMemo(() => {
+  /**
+   * firstMs: depends on messages (gated by messageVersion).
+   * Separated from the nowMs dependency so a new message arrival doesn't
+   * compound with the 1s tick in a single memo.
+   */
+  const firstMs = createMemo(() => {
     const sid = props.sessionID()
-    if (!sid) return "--m --s"
-    const messages = props.api.state.session.messages(sid)
-    const firstMs = getFirstMessageMs(messages)
-    if (firstMs === undefined) return "--m --s"
-    const elapsed = props.nowMs() - firstMs
+    if (!sid) return undefined
+    return getFirstMessageMs(props.messages())
+  })
+
+  const elapsedText = createMemo(() => {
+    if (firstMs() === undefined) return "--m --s"
+    const elapsed = props.nowMs() - firstMs()!
     return formatDuration(elapsed)
   })
 
