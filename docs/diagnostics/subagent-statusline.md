@@ -96,7 +96,7 @@ This is different from the `/subagents:toggle-sidebar` command shipped in `openc
 
 ## Slot Interaction with `opencode-sdd-engram-manage`
 
-Both plugins register the `sidebar_content` slot. Observed registration calls:
+Both `opencode-subagent-statusline` and `opencode-sdd-engram-manage` register the `sidebar_content` slot. Observed registration calls:
 
 **`opencode-subagent-statusline@0.4.1`** — `dist/tui.js` lines 1839–1881:
 ```js
@@ -119,6 +119,19 @@ api.slots.register({
   }
 });
 ```
+
+**`opencode-git-statusline`** — `src/tui.tsx`:
+```js
+api.slots.register({
+  order: 50,
+  slots: {
+    home_bottom(ctx)     { /* Footer (branch + model only; session data = "--") */ },
+    sidebar_footer(ctx)  { /* Footer (all 5 segments; ctx.session_id → live data) */ },
+  }
+});
+```
+
+> **Note on `home_footer`**: This slot is declared in `TuiSlotMap` but is not actually rendered by the current opencode TUI layout. The original plugin design used `home_footer` but this produced silent load with no visible output. Both working reference plugins use `home_bottom` (home screen) and `sidebar_content`/`sidebar_footer` (session view).
 
 **Observed behavior**: Both plugins contribute to `sidebar_content`. The opencode slot system accumulates content from all registered plugins — it is a multi-producer pattern, not "last writer wins." The `order: 90` in `opencode-subagent-statusline` determines its rendering order relative to other plugins; `opencode-sdd-engram-manage` has no explicit order (defaults to runtime insertion order). In practice, the engram-manage model badge and the subagent-statusline list should both appear in the sidebar, stacked vertically.
 

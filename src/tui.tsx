@@ -1,12 +1,17 @@
 /**
  * Plugin entry for opencode-git-statusline.
- * Registers the home_footer slot with a reactive statusline showing:
+ * Registers two TUI slots with a reactive statusline showing:
  *   branch | model | tokens | cost | elapsed
+ *
+ *   home_bottom    — home screen (no active session).
+ *                    sessionID is always undefined; tokens/cost/elapsed show "--" placeholders.
+ *   sidebar_footer — sidebar in any active session.
+ *                    sessionID is provided directly via ctx.session_id from the slot context.
  *
  * Reactive graph:
  *   gitStatus  ← 4s poll + file.watcher.updated debounce
  *   nowMs      ← 1s setInterval
- *   sessionID  ← api.route.current (auto-tracked by SolidJS)
+ *   sessionID  ← slot context prop (not derived from api.route.current)
  *
  * All timers cleaned up via api.lifecycle.onDispose.
  * Registers /subagents:toggle-sidebar command via api.command?.register (optional chaining).
@@ -43,6 +48,15 @@ type FooterProps = {
   theme: TuiTheme
   gitStatus: () => GitState
   nowMs: () => number
+  /**
+   * Session ID passed directly from the slot context.
+   * - sidebar_footer: always a non-empty string (ctx.session_id)
+   * - home_bottom: undefined (no session)
+   * When undefined, tokens/cost/elapsed segments display "--" placeholders.
+   * Do NOT fall back to api.route.current — home_bottom must never show
+   * session-derived data even if a session is active in another screen.
+   */
+  sessionID: string | undefined
 }
 
 // ─── Segment text builders (for overflow algorithm) ──────────────────────────
@@ -93,12 +107,9 @@ function buildElapsedText(messages: ReadonlyArray<Message>, nowMs: number): stri
 function Footer(props: FooterProps): JSX.Element {
   const separatorColor = createMemo(() => useThemeColor(props.theme, "borderSubtle")())
 
-  const sessionID = createMemo<string | undefined>(() => {
-    const route = props.api.route.current
-    return route.name === "session" && typeof route.params?.sessionID === "string"
-      ? route.params.sessionID
-      : undefined
-  })
+  // sessionID is provided directly from the slot context — never derived from route.
+  // home_bottom passes undefined; sidebar_footer passes the actual session ID string.
+  const sessionID = (): string | undefined => props.sessionID
 
   const messages = createMemo<ReadonlyArray<Message>>(() => {
     const sid = sessionID()
@@ -317,15 +328,35 @@ const tui: TuiPlugin = async (api, _options, meta) => {
   ])
 
   // ── Slot registration ─────────────────────────────────────────────────────
+  //
+  // home_bottom    — visible on the home screen (no session yet).
+  //                  sessionID is undefined → tokens/cost/elapsed show "--".
+  // sidebar_footer — visible at the bottom of the sidebar in any active session.
+  //                  ctx.session_id is the string session ID provided by opencode.
+  //
+  // home_footer is declared in TuiSlotMap but is NOT actually rendered by the
+  // current opencode TUI layout (confirmed: no working plugin uses it).
+  // Both home_bottom and sidebar_footer are the proven slots (used by
+  // opencode-subagent-statusline@0.4.1 and opencode-sdd-engram-manage@1.5.0).
   api.slots.register({
     order: 50,
     slots: {
-      home_footer: (ctx) => (
+      home_bottom: (ctx) => (
         <Footer
           api={api}
           theme={ctx.theme}
           gitStatus={gitStatus}
           nowMs={nowMs}
+          sessionID={undefined}
+        />
+      ),
+      sidebar_footer: (ctx, props) => (
+        <Footer
+          api={api}
+          theme={ctx.theme}
+          gitStatus={gitStatus}
+          nowMs={nowMs}
+          sessionID={props.session_id}
         />
       ),
     },

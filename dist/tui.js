@@ -368,10 +368,7 @@ function buildElapsedText(messages, nowMs) {
 }
 function Footer(props) {
   const separatorColor = createMemo(() => useThemeColor(props.theme, "borderSubtle")());
-  const sessionID = createMemo(() => {
-    const route = props.api.route.current;
-    return route.name === "session" && typeof route.params?.sessionID === "string" ? route.params.sessionID : void 0;
-  });
+  const sessionID = () => props.sessionID;
   const messages = createMemo(() => {
     const sid = sessionID();
     if (!sid) return [];
@@ -611,13 +608,25 @@ var tui = async (api, _options, meta) => {
   api.slots.register({
     order: 50,
     slots: {
-      home_footer: (ctx) => createComponent(Footer, {
+      home_bottom: (ctx) => createComponent(Footer, {
         api,
         get theme() {
           return ctx.theme;
         },
         gitStatus,
-        nowMs
+        nowMs,
+        sessionID: void 0
+      }),
+      sidebar_footer: (ctx, props) => createComponent(Footer, {
+        api,
+        get theme() {
+          return ctx.theme;
+        },
+        gitStatus,
+        nowMs,
+        get sessionID() {
+          return props.session_id;
+        }
       })
     }
   });
