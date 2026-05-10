@@ -46,9 +46,7 @@ function parsePorcelainV2(out) {
   }
   return { branch, ahead, behind, dirty };
 }
-
-// src/theme.ts
-var useThemeColor = (theme, key) => () => theme.current[key];
+var useThemeColor = (theme, key) => () => untrack(() => theme.current[key]);
 function buildBranchText(state, vcsBranch) {
   if (state.error === "not-a-repo" || !state.branch && !vcsBranch) {
     return "--";
